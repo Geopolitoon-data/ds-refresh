@@ -1,0 +1,935 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DS Refresh</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<style>
+/* Layout: top bar + one working view; exercises split into brief (left) and editor/terminal (right). */
+:root {
+  --bg: #f3f4f1; --surface: #ffffff; --line: #dcdfd8; --ink: #1d2320; --muted: #5d6762;
+  --accent: #1f5f5b; --accent-ink: #ffffff; --accent-soft: #dcebe8;
+  --py: #2f6aa8; --sql: #a8641b; --ml: #7a4a92;
+  --good: #2c7a3f; --good-soft: #e1f1e4; --bad: #b3372d; --bad-soft: #f8e3e0; --warn: #9a6a00;
+  --term: #171b1a; --term-ink: #dfe6e2; --term-dim: #8a9690; --term-line: #2a302e;
+  --font: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", Consolas, "Cascadia Mono", monospace;
+  --r: 8px;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --bg: #121615; --surface: #1a1f1e; --line: #2c3331; --ink: #e4e9e6; --muted: #9aa5a0;
+  --accent: #5fb3a9; --accent-ink: #0d1312; --accent-soft: #1f3532;
+  --py: #7aaee6; --sql: #e0a35c; --ml: #c49ad8;
+  --good: #6cc183; --good-soft: #1c3424; --bad: #ef8a7f; --bad-soft: #3a201d; --warn: #e3b44f;
+  --term: #0c0f0e; --term-line: #232927; color-scheme: dark;
+} }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(--font); }
+button { font: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+code, pre, .mono { font-family: var(--mono); font-size: 13px; }
+
+/* top bar */
+.bar { position: sticky; top: 0; z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: 20px; padding: 0 max(16px, 3vw); height: 56px; }
+.brand { font-weight: 700; letter-spacing: -.01em; display: flex; align-items: center; gap: 8px; }
+.brand .prompt { font-family: var(--mono); color: var(--accent); }
+nav { display: flex; gap: 4px; flex: 1; overflow-x: auto; }
+nav a { color: var(--muted); text-decoration: none; padding: 6px 12px; border-radius: 6px; font-weight: 500; white-space: nowrap; }
+nav a:hover { color: var(--ink); background: var(--bg); }
+nav a.on { color: var(--ink); background: var(--accent-soft); }
+.badge { display: inline-block; min-width: 20px; padding: 0 6px; margin-left: 4px; border-radius: 10px;
+  background: var(--accent); color: var(--accent-ink); font-size: 12px; text-align: center; font-weight: 600; }
+.stats { display: flex; gap: 16px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+.stats b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.brand { white-space: nowrap; }
+@media (max-width: 700px) {
+  .bar { flex-wrap: wrap; height: auto; padding-block: 8px; gap: 6px 16px; justify-content: space-between; }
+  nav { order: 3; flex-basis: 100%; }
+  .stats { gap: 10px; }
+}
+
+main { padding: 28px max(16px, 3vw) 60px; max-width: 1400px; margin: 0 auto; }
+h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -.015em; text-wrap: balance; }
+h2 { font-size: 17px; margin: 28px 0 12px; }
+.sub { color: var(--muted); margin: 0 0 20px; }
+.eyebrow { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+
+.btn { border: 1px solid var(--line); background: var(--surface); color: var(--ink); padding: 8px 14px; border-radius: 6px; font-weight: 500; }
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn.ghost:hover { color: var(--ink); }
+.btn:disabled { opacity: .5; cursor: default; }
+kbd { font-family: var(--mono); font-size: 11px; opacity: .75; margin-left: 6px; }
+
+.chip { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 4px; border: 1px solid currentColor; }
+.t-python { color: var(--py); } .t-sql { color: var(--sql); } .t-ml { color: var(--ml); }
+.lvl { color: var(--muted); font-size: 12px; }
+
+/* today */
+.review-call { display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 18px 20px; }
+.review-call .big { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.tracks { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.track { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+.track h3 { margin: 0 0 4px; font-size: 14px; display: flex; justify-content: space-between; }
+.ex-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 6px; border: 1px solid var(--line);
+  text-decoration: none; color: inherit; background: var(--bg); }
+.ex-row:hover { border-color: var(--muted); }
+.ex-row .tick { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--line); flex: none; display: grid; place-items: center; font-size: 12px; }
+.ex-row.done .tick { background: var(--good); border-color: var(--good); color: #fff; }
+.ex-row .name { flex: 1; min-width: 0; }
+.ex-row .name small { display: block; color: var(--muted); font-size: 12px; }
+.meter { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--accent); }
+.week { display: flex; gap: 4px; align-items: flex-end; height: 44px; }
+.week div { flex: 1; background: var(--accent-soft); border-radius: 3px 3px 0 0; min-height: 3px; position: relative; }
+.week div.has { background: var(--accent); }
+
+/* exercise */
+.split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 20px; align-items: start; }
+@media (max-width: 960px) { .split { grid-template-columns: minmax(0, 1fr); } }
+.brief { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 20px 22px; }
+.brief .meta { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.prose p { margin: 0 0 10px; max-width: 68ch; }
+.prose ul { margin: 0 0 10px; padding-left: 20px; }
+.prose code { background: var(--bg); border: 1px solid var(--line); padding: 0 4px; border-radius: 3px; }
+.prose pre { background: var(--bg); border: 1px solid var(--line); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+.prose pre code { background: none; border: 0; padding: 0; }
+.hints { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.hint { background: var(--accent-soft); padding: 8px 12px; border-radius: 6px; font-size: 14px; }
+.schema { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
+.schema details { margin-bottom: 4px; }
+.schema summary { cursor: pointer; font-family: var(--mono); font-size: 13px; }
+.schema summary span { color: var(--muted); }
+.schema ul { margin: 4px 0 8px; padding-left: 18px; font-family: var(--mono); font-size: 12px; color: var(--muted); columns: 2; }
+
+.ide { background: var(--term); border-radius: var(--r); overflow: hidden; border: 1px solid var(--term-line); }
+.ide-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--term-line); color: var(--term-dim); font-family: var(--mono); font-size: 12px; flex-wrap: wrap; }
+.ide-head .sp { flex: 1; }
+.ide-head .btn { background: transparent; border-color: var(--term-line); color: var(--term-ink); padding: 5px 12px; font-size: 13px; }
+.ide-head .btn:hover { border-color: var(--term-dim); }
+.ide-head .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.editor-wrap .CodeMirror, .editor-wrap textarea { height: 340px; font-family: var(--mono); font-size: 14px; }
+.editor-wrap textarea { width: 100%; background: var(--term); color: var(--term-ink); border: 0; padding: 12px; resize: vertical; outline: none; tab-size: 4; }
+.console { border-top: 1px solid var(--term-line); color: var(--term-ink); font-family: var(--mono); font-size: 13px; padding: 12px 14px; min-height: 120px; max-height: 460px; overflow: auto; }
+.console .dim { color: var(--term-dim); }
+.console pre { margin: 0 0 8px; white-space: pre-wrap; word-break: break-word; font-size: 13px; }
+.console .err { color: #ff9a8f; }
+.console .ok { color: #84d99b; }
+.console .chk { display: flex; gap: 8px; padding: 2px 0; }
+.console .chk .detail { color: var(--term-dim); }
+.console table { border-collapse: collapse; margin: 6px 0; font-size: 12.5px; }
+.console th, .console td { border: 1px solid var(--term-line); padding: 3px 8px; text-align: left; white-space: nowrap; }
+.console th { color: var(--term-dim); font-weight: 600; }
+.console .tbl { overflow-x: auto; }
+.console details summary { cursor: pointer; color: var(--term-dim); }
+
+.result { margin-top: 16px; border-radius: var(--r); padding: 16px 18px; border: 1px solid var(--good); background: var(--good-soft); }
+.result h3 { margin: 0 0 6px; color: var(--good); font-size: 16px; }
+.result pre { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; overflow-x: auto; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+/* quiz + review cards */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 22px 24px; max-width: 760px; }
+.q { margin-bottom: 22px; }
+.q-text { font-weight: 600; margin-bottom: 10px; }
+.opts { display: flex; flex-direction: column; gap: 8px; }
+.opt { text-align: left; border: 1px solid var(--line); background: var(--bg); color: var(--ink); padding: 10px 14px; border-radius: 6px; }
+.opt:hover:not(:disabled) { border-color: var(--muted); }
+.opt.right { border-color: var(--good); background: var(--good-soft); }
+.opt.wrong { border-color: var(--bad); background: var(--bad-soft); }
+.opt:disabled { cursor: default; }
+.why { margin-top: 8px; font-size: 14px; color: var(--muted); }
+.feedback { margin-top: 14px; padding: 10px 14px; border-radius: 6px; font-weight: 500; }
+.feedback.good { background: var(--good-soft); color: var(--good); }
+.feedback.bad { background: var(--bad-soft); color: var(--bad); }
+.codeblock { background: var(--term); color: var(--term-ink); border-radius: 6px; padding: 12px 14px; overflow-x: auto; margin: 10px 0; white-space: pre; }
+input.answer { width: 100%; font: 14px var(--mono); padding: 10px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+.review-top { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; max-width: 760px; }
+.review-top .meter { flex: 1; }
+.fmt { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+
+/* curriculum map */
+.days { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+.day { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; }
+.day.current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.day h3 { margin: 0 0 8px; font-size: 14px; display: flex; justify-content: space-between; }
+.day a { display: flex; gap: 8px; align-items: baseline; text-decoration: none; color: var(--ink); font-size: 13.5px; padding: 3px 0; }
+.day a:hover { color: var(--accent); }
+.day a .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; border: 1.5px solid currentColor; transform: translateY(-1px); }
+.day a.done .dot { background: currentColor; }
+.empty { color: var(--muted); padding: 30px 0; }
+
+/* CodeMirror terminal theme */
+.cm-s-term.CodeMirror { background: var(--term); color: var(--term-ink); }
+.cm-s-term .CodeMirror-gutters { background: var(--term); border-right: 1px solid var(--term-line); }
+.cm-s-term .CodeMirror-linenumber { color: #56615c; }
+.cm-s-term .CodeMirror-cursor { border-left: 2px solid #9fe3d6; }
+.cm-s-term .CodeMirror-selected, .cm-s-term .CodeMirror-focused .CodeMirror-selected { background: #2c4542; }
+.cm-s-term .cm-keyword { color: #f0a35e; } .cm-s-term .cm-def { color: #8cc8ff; }
+.cm-s-term .cm-string { color: #a8d98a; } .cm-s-term .cm-number { color: #d9a8f0; }
+.cm-s-term .cm-comment { color: #6f7b76; font-style: italic; } .cm-s-term .cm-builtin { color: #7fd3c7; }
+.cm-s-term .cm-operator { color: #dfe6e2; } .cm-s-term .cm-variable-2 { color: #e8d9a8; }
+.cm-s-term .cm-atom { color: #d9a8f0; }
+/* warm-up */
+.warmup { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 16px 20px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 12px; }
+.warmup.done { border-color: var(--good); background: var(--good-soft); }
+.warmup .big { font-size: 20px; font-weight: 700; }
+.warmup-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.wu-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.wu-dots { display: flex; gap: 6px; }
+.wu-dots i { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--good); }
+.wu-dots i.y { background: var(--good); }
+
+/* lessons */
+.lesson { max-width: 860px; display: flex; flex-direction: column; gap: 18px; }
+.lesson-head { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 20px 24px; }
+.goals { margin: 8px 0 0; padding-left: 20px; }
+.lesson h2 { margin: 6px 0 6px; }
+.example .ide { margin-top: 4px; }
+.example .caption { font-size: 14px; color: var(--muted); margin: 6px 2px 0; }
+.small .CodeMirror, .small textarea { height: auto !important; min-height: 60px; }
+.small .CodeMirror-scroll { min-height: 60px; }
+.small + .console { min-height: 0; }
+.practice { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 18px 22px; display: flex; flex-direction: column; gap: 22px; }
+.p-item { border-top: 1px solid var(--line); padding-top: 16px; }
+.p-item:first-of-type { border-top: 0; padding-top: 0; }
+.at-work { border-left: 3px solid var(--sql); background: color-mix(in srgb, var(--sql) 9%, var(--surface)); border-radius: 0 6px 6px 0; padding: 8px 14px; margin: 4px 0 12px; }
+.at-work .eyebrow { color: var(--sql); margin-bottom: 2px; }
+.at-work .prose p:last-child, .at-work .prose ul:last-child { margin-bottom: 0; }
+.recap { background: var(--accent-soft); border-radius: var(--r); padding: 14px 20px; }
+.recap ul { margin: 6px 0 0; padding-left: 20px; }
+.lesson-row .tick { border-radius: 4px; }
+.banner { background: var(--accent-soft); border-radius: 6px; padding: 8px 12px; font-size: 14px; margin-bottom: 12px; }
+.banner a { color: var(--accent); font-weight: 600; }
+
+/* scoreboard */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 12px 16px; }
+.tile b { display: block; font-size: 24px; font-variant-numeric: tabular-nums; }
+.tile span { font-size: 13px; color: var(--muted); }
+.filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; align-items: center; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; background: var(--surface); color: var(--muted); padding: 6px 12px; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button.on { background: var(--accent); color: var(--accent-ink); }
+.score-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); }
+table.score { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.score th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.score td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+table.score tr:last-child td { border-bottom: 0; }
+table.score td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.score a.t { color: var(--ink); text-decoration: none; font-weight: 500; }
+table.score a.t:hover { color: var(--accent); }
+.pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+.pill.failed { background: var(--bad-soft); color: var(--bad); }
+.pill.shaky { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+.pill.passed { background: var(--good-soft); color: var(--good); }
+.pill.new { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+.dots { display: inline-flex; gap: 3px; }
+.dots i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.dots i.y { background: var(--good); } .dots i.n { background: var(--bad); }
+.btn.sm { padding: 4px 10px; font-size: 13px; }
+a.btn { text-decoration: none; display: inline-block; }
+@media (max-width: 900px) { table.score .wide { display: none; } }
+.record { font-size: 13px; color: var(--muted); }
+.similar { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
+.similar .btn { padding: 2px 10px; font-size: 15px; line-height: 1.3; }
+.similar .btn:disabled { opacity: .35; cursor: default; }
+.similar .vdots { display: flex; gap: 4px; }
+.similar .vdots i { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--muted); }
+.similar .vdots i.on { border-color: var(--accent); background: var(--accent-soft); }
+.similar .vdots i.y { border-color: var(--good); background: var(--good); }
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 16px; border-radius: 6px; font-size: 14px; }
+@media (prefers-reduced-motion: no-preference) { .fade { animation: fade .18s ease-out; } @keyframes fade { from { opacity: .4; transform: translateY(3px); } } }
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="brand"><span class="prompt">&gt;_</span> DS Refresh</div>
+  <nav id="nav">
+    <a href="#today" data-v="today">Today</a>
+    <a href="#review" data-v="review">Review<span class="badge" id="due-badge" hidden></span></a>
+    <a href="#plan" data-v="plan">Plan</a>
+    <a href="#scores" data-v="scores">Scoreboard</a>
+    <a href="#play" data-v="play">Playground</a>
+  </nav>
+  <div class="stats"><span>Day <b id="st-day">1</b>/<span id="st-days">14</span></span><span>Streak <b id="st-streak">0</b></span><span>Solved <b id="st-done">0</b></span></div>
+</header>
+<main id="view"><p class="empty">Loading…</p></main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/sql/sql.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
+<script src="local-api.js"></script>
+<script>
+"use strict";
+const TRACK = { python: "Python", sql: "SQL", ml: "Machine learning" };
+const FORMAT = { flash: "flashcard", mcq: "multiple choice", output: "predict the output", blank: "fill the blank", redo: "solve it again" };
+let S = null;              // server state
+let session = null;        // active review session
+const attempts = {};       // per exercise attempt counter (this visit)
+
+// ------------------------------------------------------------ helpers
+const $ = (sel, el = document) => el.querySelector(sel);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+function md(src) {
+  const blocks = String(src || "").split(/```/);
+  return blocks.map((b, i) => {
+    if (i % 2) return `<pre><code>${esc(b.replace(/^\w*\n/, "").replace(/\n$/, ""))}</code></pre>`;
+    return b.split(/\n{2,}/).map(par => {
+      const lines = par.trim().split("\n");
+      if (!lines[0]) return "";
+      // *italic* only when the asterisks hug a word, so `x * 2` and code stay untouched
+      const inline = t => esc(t).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+        .replace(/(^|[\s(])\*([^\s*<][^*<]*?[^\s*<]|[^\s*<])\*(?=[\s.,;:!?)]|$)/g, "$1<i>$2</i>");
+      if (lines.every(l => /^\s*[-*] /.test(l))) return "<ul>" + lines.map(l => `<li>${inline(l.replace(/^\s*[-*] /, ""))}</li>`).join("") + "</ul>";
+      return `<p>${lines.map(inline).join("<br>")}</p>`;
+    }).join("");
+  }).join("");
+}
+const norm = s => String(s ?? "").replace(/\s+/g, "").replace(/"/g, "'").toLowerCase();
+const api = (path, body) => LocalAPI.call(path, body);
+function toast(msg) {
+  const t = document.createElement("div"); t.className = "toast"; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), 1800);
+}
+const byId = id => S.exercises.find(e => e.id === id) || S.warmups.find(e => e.id === id) || S.saved.find(e => e.id === id);
+// Warm-ups run on their own track: one set of 3 per calendar day, whatever the main progress.
+function warmupSet() {
+  const wdays = [...new Set(S.warmups.map(e => e.day))].sort((a, b) => a - b);
+  const set = d => S.warmups.filter(e => e.day === d);
+  const finishedToday = wdays.find(d => set(d).every(e => isDone(e.id)) && set(d).some(e => S.done[e.id].date === S.today));
+  const d = finishedToday ?? wdays.find(d => set(d).some(e => !isDone(e.id)));
+  return d === undefined ? null : { day: d, items: set(d) };
+}
+function nextWarmup(after) {
+  const ws = warmupSet(); return ws && ws.items.find(e => e.id !== after && !isDone(e.id));
+}
+const isDone = id => !!S.done[id];
+const days = () => [...new Set(S.exercises.map(e => e.day))].sort((a, b) => a - b);
+function currentDay() {
+  for (const d of days()) if (S.exercises.some(e => e.day === d && !isDone(e.id))) return d;
+  return days().slice(-1)[0] || 1;
+}
+const lessonFor = (day, track) => S.lessons.find(l => l.day === day && l.track === track);
+const lessonDone = id => !!S.lessons_done[id];
+// One status per exercise for the scoreboard: new / failed / shaky / passed.
+function status(e) {
+  const st = S.stats[e.id] || {}; const hist = S.reviews[e.id]?.history || []; const last = hist[hist.length - 1];
+  if (!isDone(e.id)) return st.tries ? { key: "failed", label: "Failed", why: `${st.fails} failed attempt${st.fails > 1 ? "s" : ""}, not solved yet` } : { key: "new", label: "Not started", why: "" };
+  const reasons = [];
+  if (st.revealed) reasons.push("looked at the solution");
+  if (st.last_ok === false && e.kind !== "quiz") reasons.push("last attempt failed");
+  if (last && !last[2]) reasons.push("missed the last review");
+  const sc = (st.scores || []).slice(-1)[0];
+  if (e.kind === "quiz" && sc && sc[0] < 0.7 * sc[1]) reasons.push(`quiz score ${sc[0]}/${sc[1]}`);
+  if (reasons.length) return { key: "shaky", label: "Needs work", why: reasons.join(", ") };
+  if (e.kind === "quiz") return { key: "passed", label: "Passed", why: sc ? `quiz score ${sc[0]}/${sc[1]}` : "" };
+  const firstTry = st.solved_on_try === 1 && !st.helped;
+  return { key: "passed", label: firstTry ? "Passed first try" : "Passed", why: firstTry ? "" : st.helped ? "solved with the solution's help" : `solved on try ${st.solved_on_try}` };
+}
+const dots = id => `<span class="dots">${(S.reviews[id]?.history || []).slice(-6).map(h => `<i class="${h[2] ? "y" : "n"}" title="${h[0]}: ${h[2] ? "right" : "missed"}"></i>`).join("")}</span>`;
+function nextExercise(after) {
+  const list = S.exercises; const i = list.findIndex(e => e.id === after);
+  return list.slice(i + 1).concat(list.slice(0, i)).find(e => !isDone(e.id));
+}
+
+// ------------------------------------------------------------ editor
+function makeEditor(host, value, lang, keys) {
+  if (window.CodeMirror) {
+    const cm = CodeMirror(host, {
+      value, mode: lang === "sql" ? "text/x-sqlite" : "python", theme: "term", lineNumbers: true,
+      indentUnit: 4, matchBrackets: true, viewportMargin: Infinity,
+      extraKeys: {
+        "Ctrl-Enter": () => keys.run && keys.run(), "Cmd-Enter": () => keys.run && keys.run(),
+        "Shift-Ctrl-Enter": () => keys.check && keys.check(), "Shift-Cmd-Enter": () => keys.check && keys.check(),
+        Tab: c => c.somethingSelected() ? c.indentSelection("add") : c.replaceSelection("    "),
+        "Shift-Tab": c => c.indentSelection("subtract"),
+      },
+    });
+    if (keys.change) cm.on("change", () => keys.change(cm.getValue()));
+    setTimeout(() => cm.refresh(), 0);
+    return { get: () => cm.getValue(), set: v => cm.setValue(v), focus: () => cm.focus() };
+  }
+  const ta = document.createElement("textarea"); ta.value = value; ta.spellcheck = false; host.appendChild(ta);
+  ta.addEventListener("keydown", e => {
+    if (e.key === "Tab") { e.preventDefault(); ta.setRangeText("    ", ta.selectionStart, ta.selectionEnd, "end"); }
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); (e.shiftKey ? keys.check : keys.run)?.(); }
+  });
+  if (keys.change) ta.addEventListener("input", () => keys.change(ta.value));
+  return { get: () => ta.value, set: v => { ta.value = v; }, focus: () => ta.focus() };
+}
+
+function renderTable(cols, rows, total) {
+  if (!cols.length) return `<div class="dim">Query ran. No result set.</div>`;
+  const cell = v => v === null ? `<span class="dim">NULL</span>` : esc(v);
+  return `<div class="tbl"><table><tr>${cols.map(c => `<th>${esc(c)}</th>`).join("")}</tr>${rows.map(r => `<tr>${r.map(v => `<td>${cell(v)}</td>`).join("")}</tr>`).join("")}</table></div>` +
+    (total > rows.length ? `<div class="dim">… ${total - rows.length} more rows</div>` : "");
+}
+function renderOutput(res, lang) {
+  let h = "";
+  if (res.error) h += `<pre class="err">${esc(res.error)}</pre>`;
+  if (lang === "sql" && res.columns) h += renderTable(res.columns, res.rows, res.rowcount) + `<div class="dim">${res.rowcount} row(s) · ${res.ms} ms</div>`;
+  if (lang !== "sql" && res.stdout) h += `<pre>${esc(res.stdout)}</pre>`;
+  if (res.checks && res.checks.length) {
+    const n = res.checks.filter(c => c.passed).length;
+    h += `<div class="${res.ok ? "ok" : "err"}" style="margin:6px 0">${res.ok ? "✔ All checks passed" : `✘ ${n}/${res.checks.length} checks passed`}</div>`;
+    h += res.checks.map(c => {
+      let d = "";
+      if (!c.passed && c.error) d = ` <span class="detail">→ ${esc(c.error)}</span>`;
+      else if (!c.passed && c.expected !== undefined) d = ` <span class="detail">→ got ${esc(c.got)}, expected ${esc(c.expected)}</span>`;
+      return `<div class="chk"><span class="${c.passed ? "ok" : "err"}">${c.passed ? "✔" : "✘"}</span><span>${esc(c.label)}${d}</span></div>`;
+    }).join("");
+    if (!res.ok && res.expected_preview) h += `<details style="margin-top:8px"><summary>Peek at the expected result</summary>${renderTable(res.expected_preview.columns, res.expected_preview.rows, res.expected_preview.rows.length)}</details>`;
+  }
+  if (!h) h = `<span class="dim">(no output)</span>`;
+  if (lang !== "sql" && res.ms) h += `<div class="dim">${res.ms} ms</div>`;
+  return h;
+}
+function schemaHTML() {
+  if (!S.schema.length) return "";
+  return `<div class="schema"><div class="eyebrow" style="margin-bottom:6px">Database tables</div>` + S.schema.map(t =>
+    `<details><summary>${esc(t.name)} <span>(${t.rows} rows)</span></summary><ul>${t.columns.map(c => `<li>${esc(c[0])} <span>${esc(c[1])}</span></li>`).join("")}</ul></details>`).join("") + "</div>";
+}
+
+// ------------------------------------------------------------ views
+function setNav(v) {
+  document.querySelectorAll("#nav a").forEach(a => a.classList.toggle("on", a.dataset.v === v));
+  const b = $("#due-badge"); b.hidden = !S.due.length; b.textContent = S.due.length;
+  $("#st-day").textContent = currentDay(); $("#st-days").textContent = days().length; $("#st-streak").textContent = S.streak;
+  $("#st-done").textContent = `${S.exercises.filter(e => isDone(e.id)).length}/${S.exercises.length}`;
+}
+
+function viewToday() {
+  setNav("today");
+  const d = currentDay(); const todays = S.exercises.filter(e => e.day === d);
+  const left = todays.filter(e => !isDone(e.id)).length;
+  const last7 = [...Array(7)].map((_, i) => { const dt = new Date(); dt.setDate(dt.getDate() - (6 - i)); return dt.toISOString().slice(0, 10); });
+  const maxAct = Math.max(1, ...last7.map(k => (S.log[k]?.solved || 0) + (S.log[k]?.reviewed || 0)));
+  const nice = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+  let h = `<div class="fade"><div class="eyebrow">${esc(nice)}</div><h1>Day ${d}: ${esc(dayTheme(d))}</h1>
+    <p class="sub">${left ? `${left} new exercise${left > 1 ? "s" : ""} to go today. Warm up, review, then the new material.` : "Today's set is done. Keep going with tomorrow's, or rest."}</p>`;
+  const ws = warmupSet();
+  if (ws) {
+    const n = ws.items.filter(e => isDone(e.id)).length; const all = n === ws.items.length;
+    h += `<div class="warmup ${all ? "done" : ""}"><div class="warmup-head"><div><div class="eyebrow">Step 1 · Warm-up · about 5 min</div>
+      <div class="big">${all ? "Warm-up done. Nice start!" : n ? `${n} of ${ws.items.length} done, keep going` : `${ws.items.length === 3 ? "Three" : ws.items.length === 2 ? "Two" : ws.items.length} quick win${ws.items.length > 1 ? "s" : ""} to get going`}</div></div>
+      <div class="wu-dots">${ws.items.map(e => `<i class="${isDone(e.id) ? "y" : ""}"></i>`).join("")}</div></div>
+      <div class="wu-grid">${ws.items.map(e => `<a class="ex-row ${isDone(e.id) ? "done" : ""}" href="#ex/${e.id}"><span class="tick">${isDone(e.id) ? "✓" : ""}</span><span class="name">${esc(e.title)}<small><span class="t-${e.track}">${TRACK[e.track]}</span> · ${e.kind === "quiz" ? "quick question" : "1-2 min"}</small></span></a>`).join("")}</div></div>`;
+  } else if (S.warmups.length) {
+    h += `<div class="warmup done"><div class="eyebrow">Step 1 · Warm-up</div><div class="big">All ${S.warmups.length} warm-ups done</div></div>`;
+  }
+  h += `<div class="review-call"><div><div class="eyebrow">Step 2 · Review</div>`;
+  if (S.due.length) h += `<div class="big">${S.due.length} exercise${S.due.length > 1 ? "s" : ""} to review</div><div class="sub" style="margin:0">One quick card each, in a different format every time.</div></div><a class="btn primary" href="#review">Start review</a>`;
+  else if (S.exercises.some(e => isDone(e.id))) h += `<div class="big">Nothing due</div><div class="sub" style="margin:0">Exercises you solve come back tomorrow, then at growing intervals.</div></div>`;
+  else h += `<div class="big">Nothing to review yet</div><div class="sub" style="margin:0">Exercises you solve today come back tomorrow as quick cards.</div></div>`;
+  h += `<div><div class="eyebrow" style="text-align:right">Last 7 days</div><div class="week" style="width:160px" title="Exercises solved + cards reviewed">${last7.map(k => { const a = (S.log[k]?.solved || 0) + (S.log[k]?.reviewed || 0); return `<div class="${a ? "has" : ""}" style="height:${Math.max(7, a / maxAct * 100)}%" title="${k}: ${a}"></div>`; }).join("")}</div></div></div>`;
+  h += `<h2>Step 3 · Lesson, then exercises</h2><div class="tracks">`;
+  for (const t of Object.keys(TRACK)) {
+    const list = todays.filter(e => e.track === t); if (!list.length) continue;
+    const all = S.exercises.filter(e => e.track === t); const pct = all.filter(e => isDone(e.id)).length / all.length * 100;
+    h += `<div class="track"><h3><span class="t-${t}">${TRACK[t]}</span><span class="lvl">${all.filter(e => isDone(e.id)).length}/${all.length} overall</span></h3><div class="meter"><i style="width:${pct}%"></i></div>`;
+    const les = lessonFor(d, t);
+    h += (les ? lessonRow(les) : "") + list.map(exRow).join("") + "</div>";
+  }
+  h += "</div></div>";
+  $("#view").innerHTML = h;
+}
+function lessonRow(l) {
+  return `<a class="ex-row lesson-row ${lessonDone(l.id) ? "done" : ""}" href="#lesson/${l.id}"><span class="tick">${lessonDone(l.id) ? "✓" : ""}</span><span class="name"><b>Lesson:</b> ${esc(l.title)}<small>${l.minutes} min · ${l.practice.length} in-class exercises${lessonDone(l.id) ? "" : " · start here"}</small></span></a>`;
+}
+function exRow(e) {
+  return `<a class="ex-row ${isDone(e.id) ? "done" : ""}" href="#ex/${e.id}"><span class="tick">${isDone(e.id) ? "✓" : ""}</span><span class="name">${esc(e.title)}<small>${esc(e.topic)} · ${e.kind === "quiz" ? "concept quiz" : e.kind === "sql" ? "SQL query" : "code"} · ${esc(e.level || "")}</small></span></a>`;
+}
+function dayTheme(d) {
+  const ts = S.exercises.filter(e => e.day === d);
+  return [...new Set(ts.filter(e => e.kind !== "quiz").map(e => e.topic.split(/[,/(]/)[0].trim()))].slice(0, 3).join(" · ") || "Practice";
+}
+
+function viewPlan() {
+  setNav("plan");
+  const cd = currentDay();
+  let h = `<h1>${days().length}-day plan</h1><p class="sub">Python and SQL run from day 1 to day 14. Machine learning starts on day 9, once the Python lessons have covered numpy and pandas, which ML code is built on. You can open any exercise, ahead or behind.</p><div class="days">`;
+  for (const d of days()) {
+    const list = S.exercises.filter(e => e.day === d); const n = list.filter(e => isDone(e.id)).length;
+    const ls = S.lessons.filter(l => l.day === d);
+    h += `<div class="day ${d === cd ? "current" : ""}"><h3><span>Day ${d}</span><span class="lvl">${n}/${list.length}</span></h3>` +
+      ls.map(l => `<a class="${lessonDone(l.id) ? "done" : ""}" href="#lesson/${l.id}"><span class="dot t-${l.track}" style="border-radius:2px"></span><span><b>Lesson:</b> ${esc(l.title)}</span></a>`).join("") +
+      list.map(e => `<a class="${isDone(e.id) ? "done" : ""}" href="#ex/${e.id}"><span class="dot t-${e.track}"></span><span>${esc(e.title)}</span></a>`).join("") + "</div>";
+  }
+  $("#view").innerHTML = h + "</div>";
+}
+
+function nextSaved(after) {
+  const cur = S.saved.find(e => e.id === after); const list = S.saved.filter(e => e.section === cur.section);
+  return list[list.findIndex(e => e.id === after) + 1];
+}
+function nextFor(ex) { return ex.saved ? nextSaved(ex.id) : ex.warmup ? nextWarmup(ex.id) : nextExercise(ex.id); }
+function afterNote(ex, was, nx) {
+  if (ex.saved) return "";
+  if (ex.warmup) return nx ? "" : `<p class="sub" style="margin:8px 0 0"><b>Warm-up complete. Nice start!</b> Your review and today's lesson are next.</p>`;
+  return was ? "" : `<p class="sub" style="margin:8px 0 0">It comes back tomorrow in your review.</p>`;
+}
+const dayLabel = ex => ex.saved ? "Saved" : ex.warmup ? "Warm-up" : `Day ${ex.day}`;
+function lessonBanner(ex) {
+  if (ex.warmup || ex.saved) return "";
+  const l = lessonFor(ex.day, ex.track);
+  return l && !lessonDone(l.id) ? `<div class="banner">New topic? Start with the lesson: <a href="#lesson/${l.id}">${esc(l.title)}</a> (${l.minutes} min)</div>` : "";
+}
+function recordLine(ex) {
+  const st = S.stats[ex.id]; if (!st || (!st.tries && !st.scores)) return "";
+  const s = status(ex);
+  const tries = ex.kind === "quiz" ? `${(st.scores || []).length} attempt${(st.scores || []).length > 1 ? "s" : ""}` : `${st.tries} attempt${st.tries > 1 ? "s" : ""}, ${st.fails} failed`;
+  return `<p class="record">Your record: <span class="pill ${s.key}">${s.label}</span> ${tries}${s.why ? ` · ${esc(s.why)}` : ""} ${dots(ex.id)}</p>`;
+}
+
+// Similar versions: the same skill on new data. Version 0 is the item itself; '<id>~<n>' is version n.
+function versionOf(item, baseId, k) {
+  return k ? { ...item, ...item.more[k - 1], id: `${baseId}~${k}`, base: baseId } : item;
+}
+const versionSolved = (baseId, k, firstDone) => k ? !!S.more_done[`${baseId}~${k}`] : firstDone;
+function similarBar(baseId, k, n, firstDone) {
+  if (n < 2) return "";
+  return `<div class="similar"><button class="btn" data-sim="-1" ${k ? "" : "disabled"} title="Previous version">‹</button>
+    <span>Version ${k + 1} of ${n} · same skill, new data</span>
+    <span class="vdots">${[...Array(n)].map((_, j) => `<i class="${versionSolved(baseId, j, firstDone) ? "y" : j === k ? "on" : ""}"></i>`).join("")}</span>
+    <button class="btn" data-sim="1" ${k < n - 1 ? "" : "disabled"} title="Next similar exercise">›</button></div>`;
+}
+
+function solCode(s) {
+  if (!s.solution_steps) return `<pre><code>${esc(s.solution)}</code></pre>`;
+  return `<p class="lvl" style="margin:6px 0 4px">Step by step</p><pre><code>${esc(s.solution_steps)}</code></pre><p class="lvl" style="margin:10px 0 4px">Short version (same result)</p><pre><code>${esc(s.solution)}</code></pre>`;
+}
+function viewExercise(id, redo) {
+  const [baseId, kStr] = id.split("~"); const k = +(kStr || 0);
+  const base = byId(baseId); if (!base) return viewToday();
+  if (k > (base.more || []).length) return viewExercise(baseId);
+  const ex = versionOf(base, baseId, k); const nv = 1 + (base.more || []).length;
+  const solvedHere = k || ex.saved ? !!S.more_done[id] : isDone(id);
+  const goVersion = () => document.querySelectorAll("[data-sim]").forEach(b => b.onclick = () => {
+    const j = k + +b.dataset.sim; location.hash = `#ex/${j ? `${baseId}~${j}` : baseId}`;
+  });
+  setNav(null);
+  if (ex.kind === "quiz") return viewQuiz(ex);
+  const lang = ex.kind === "sql" ? "sql" : "python";
+  attempts[id] = attempts[id] || 0;
+  $("#view").innerHTML = `<div class="split fade">
+    <section class="brief">
+      ${lessonBanner(ex)}
+      <div class="meta"><span class="chip t-${ex.track}">${TRACK[ex.track]}</span><span class="lvl">${dayLabel(ex)} · ${esc(ex.topic)}${ex.warmup || ex.saved ? "" : ` · ${esc(ex.level || "")}`}</span>${solvedHere ? `<span class="chip" style="color:var(--good)">solved</span>` : ""}</div>
+      <h1>${esc(ex.title)}</h1>
+      ${similarBar(baseId, k, nv, base.saved ? !!S.more_done[baseId] : isDone(baseId))}
+      ${k ? "" : recordLine(ex)}
+      <div class="prose">${md(ex.prompt)}</div>
+      <div class="hints" id="hints"></div>
+      ${lang === "sql" ? schemaHTML() : ""}
+    </section>
+    <section style="min-width:0">
+      <div class="ide">
+        <div class="ide-head"><span>${lang === "sql" ? "query.sql · SQLite" : "solution.py"}</span><span class="sp"></span>
+          <button class="btn" id="b-reset" title="${ex.saved ? "Empty the editor" : "Put the starter code back"}">${ex.saved ? "Clear" : "Reset"}</button>
+          <button class="btn" id="b-run">Run<kbd>Ctrl+Enter</kbd></button>
+          <button class="btn primary" id="b-check">Check<kbd>Ctrl+Shift+Enter</kbd></button></div>
+        <div class="editor-wrap" id="ed"></div>
+        <div class="console" id="out"><span class="dim">Run shows the output. Check runs the tests.</span></div>
+      </div>
+      <div id="after"></div>
+    </section></div>`;
+  goVersion();
+  let saveT;
+  // Saved exercises are Playground practice: always an empty editor, nothing kept.
+  const blank = !!ex.saved;
+  const ed = makeEditor($("#ed"), blank ? "" : (redo ? null : S.drafts[id]) ?? ex.starter ?? "", lang, {
+    run: () => run(), check: () => check(),
+    change: v => { if (blank) return; clearTimeout(saveT); saveT = setTimeout(() => { S.drafts[id] = v; api("/api/draft", { id, code: v }); }, 800); },
+  });
+  const hints = ex.hints || []; let shown = 0;
+  const hintBox = $("#hints");
+  const drawHints = () => {
+    hintBox.innerHTML = hints.slice(0, shown).map(t => `<div class="hint">${md(t).replace(/^<p>|<\/p>$/g, "")}</div>`).join("") +
+      `<div class="row">${shown < hints.length ? `<button class="btn ghost" id="b-hint">Show a hint (${hints.length - shown} left)</button>` : ""}<button class="btn ghost" id="b-sol">Show solution</button></div>`;
+    $("#b-hint") && ($("#b-hint").onclick = () => { shown++; drawHints(); });
+    const sb = $("#b-sol"); sb.onclick = async () => {
+      if (!sb.dataset.armed) { sb.dataset.armed = 1; sb.textContent = "Click again to reveal (try first!)"; return; }
+      const s = await api("/api/solution?reveal=1&id=" + encodeURIComponent(id));
+      $("#after").innerHTML = `<div class="result" style="border-color:var(--line);background:var(--surface)"><h3 style="color:var(--ink)">Reference solution</h3>${solCode(s)}<div class="prose">${md(s.explanation)}</div><p class="sub" style="margin:0">Type it yourself and press Check to mark it solved.</p></div>`;
+    };
+  };
+  drawHints();
+  const out = $("#out");
+  $("#b-reset").onclick = () => { ed.set(blank ? "" : ex.starter || ""); ed.focus(); };
+  $("#b-run").onclick = () => run();
+  $("#b-check").onclick = () => check();
+  async function run() {
+    out.innerHTML = `<span class="dim">Running…</span>`;
+    const res = await api("/api/run", { lang, code: ed.get(), id });
+    out.innerHTML = renderOutput(res, lang);
+  }
+  async function check() {
+    out.innerHTML = `<span class="dim">Checking…${ex.track === "ml" ? " (about 5 s while scikit-learn loads)" : ""}</span>`;
+    attempts[id]++;
+    const was = k || ex.saved ? !!S.more_done[id] : isDone(id);
+    const res = await api("/api/check", { id, code: ed.get(), attempts: attempts[id] });
+    out.innerHTML = renderOutput(res, lang);
+    if (res.ok) {
+      await refresh(); setNav(null);
+      const bar = document.querySelector(".similar"); if (bar) { bar.outerHTML = similarBar(baseId, k, nv, base.saved ? !!S.more_done[baseId] : isDone(baseId)); goVersion(); }
+      const nx = nextFor(base);
+      const sim = k < nv - 1 ? `<a class="btn primary" href="#ex/${baseId}~${k + 1}">Practise again: similar exercise ›</a>` : "";
+      $("#after").innerHTML = `<div class="result fade"><h3>${was ? "Correct again" : "Solved"} ${attempts[id] === 1 && !was ? "on the first try" : ""}</h3>
+        <div class="prose">${md(res.explanation)}</div>
+        <details><summary class="lvl" style="cursor:pointer">Compare with the reference solution</summary>${solCode(res)}</details>
+        <div class="row" style="margin-top:10px">${sim}${nx ? `<a class="btn ${sim ? "" : "primary"}" href="#ex/${nx.id}">Next: ${esc(nx.title)}</a>` : ""}${ex.saved ? `<a class="btn" href="#play">Back to Playground</a>` : `<a class="btn" href="#today">Back to today</a>`}</div>
+        ${k ? "" : afterNote(ex, was, nx)}</div>`;
+    }
+  }
+  ed.focus();
+}
+
+function viewQuiz(ex) {
+  const qs = ex.questions; const answered = {};
+  $("#view").innerHTML = `<div class="fade"><div class="card" style="max-width:820px">
+    ${lessonBanner(ex)}
+    <div class="meta row"><span class="chip t-${ex.track}">${TRACK[ex.track]}</span><span class="lvl">${dayLabel(ex)} · ${esc(ex.topic)} · ${ex.warmup ? "quick question" : "concept quiz"}</span>${isDone(ex.id) ? `<span class="chip" style="color:var(--good)">done</span>` : ""}</div>
+    <h1 style="margin-top:8px">${esc(ex.title)}</h1>${recordLine(ex)}<div class="prose">${md(ex.prompt)}</div><hr style="border:0;border-top:1px solid var(--line);margin:18px 0">
+    <div id="qs">${qs.map((q, i) => `<div class="q" data-i="${i}"><div class="q-text">${i + 1}. ${md(q.q).replace(/^<p>|<\/p>$/g, "")}</div><div class="opts">${q.options.map((o, j) => `<button class="opt" data-j="${j}">${md(o).replace(/^<p>|<\/p>$/g, "")}</button>`).join("")}</div><div class="why" hidden></div></div>`).join("")}</div>
+    <div id="after"></div></div></div>`;
+  document.querySelectorAll(".q").forEach(qe => {
+    const i = +qe.dataset.i; const q = qs[i];
+    qe.querySelectorAll(".opt").forEach(b => b.onclick = async () => {
+      const j = +b.dataset.j; answered[i] = j === q.answer;
+      qe.querySelectorAll(".opt").forEach((o, k) => { o.disabled = true; if (k === q.answer) o.classList.add("right"); else if (k === j) o.classList.add("wrong"); });
+      const w = $(".why", qe); w.hidden = false; w.innerHTML = (answered[i] ? "✔ " : "✘ ") + md(q.why || "").replace(/^<p>|<\/p>$/g, "");
+      if (Object.keys(answered).length === qs.length) {
+        const score = Object.values(answered).filter(Boolean).length;
+        await api("/api/complete", { id: ex.id, attempts: 1, score: [score, qs.length] });
+        await refresh(); setNav(null);
+        const nx = nextFor(ex);
+        $("#after").innerHTML = `<div class="result fade"><h3>${score}/${qs.length} correct</h3><div class="prose">${md(ex.explanation)}</div>
+          <div class="row">${nx ? `<a class="btn primary" href="#ex/${nx.id}">Next: ${esc(nx.title)}</a>` : ""}<a class="btn" href="#today">Back to today</a></div>${ex.warmup ? afterNote(ex, false, nx) : ""}</div>`;
+        $("#after").scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    });
+  });
+}
+
+// ------------------------------------------------------------ lessons
+// "At work" box: the concrete reason a data scientist would do this, shown before the task.
+const atWork = text => text ? `<div class="at-work"><div class="eyebrow">At work</div><div class="prose">${md(text)}</div></div>` : "";
+function viewLesson(id) {
+  const l = S.lessons.find(x => x.id === id); if (!l) return viewToday();
+  setNav(null);
+  const finished = new Set();
+  const ext = lang => lang === "sql" ? "sql" : "py";
+  let h = `<div class="lesson fade"><div class="lesson-head">
+    <div class="meta row"><span class="chip t-${l.track}">${TRACK[l.track]}</span><span class="lvl">Day ${l.day} · lesson · ${l.minutes} min</span>${lessonDone(id) ? `<span class="chip" style="color:var(--good)">done</span>` : ""}</div>
+    <h1 style="margin-top:8px">${esc(l.title)}</h1>
+    <div class="eyebrow" style="margin-top:10px">By the end you can</div><ul class="goals">${l.goals.map(g => `<li>${md(g).replace(/^<p>|<\/p>$/g, "")}</li>`).join("")}</ul></div>`;
+  l.sections.forEach((s, i) => {
+    if (s.code !== undefined) h += `<div class="example"><div class="ide"><div class="ide-head"><span>example.${ext(s.lang)}</span><span class="sp"></span><button class="btn" data-run="${i}">Run<kbd>Ctrl+Enter</kbd></button></div><div class="editor-wrap small" id="sx-${i}"></div><div class="console" id="so-${i}" hidden></div></div>${s.caption ? `<p class="caption">${md(s.caption).replace(/^<p>|<\/p>$/g, "")}</p>` : ""}</div>`;
+    else h += `<section>${s.heading ? `<h2>${esc(s.heading)}</h2>` : ""}<div class="prose">${md(s.md)}</div>${atWork(s.at_work)}</section>`;
+  });
+  h += `<div class="practice"><div><div class="eyebrow">Your turn</div><h2 style="margin:4px 0 0">In-class exercises</h2></div>`;
+  l.practice.forEach((p, i) => {
+    h += `<div class="p-item" id="pi-${i}"><div class="eyebrow" style="margin-bottom:6px">Exercise ${i + 1} of ${l.practice.length}</div>${atWork(p.at_work)}`;
+    if (p.type === "mcq") h += `<div class="q-text">${md(p.q).replace(/^<p>|<\/p>$/g, "")}</div><div class="opts">${p.options.map((o, j) => `<button class="opt" data-j="${j}">${md(o).replace(/^<p>|<\/p>$/g, "")}</button>`).join("")}</div><div class="why" hidden></div>`;
+    else h += `<div data-body></div>`;  // filled by mount() below, once per similar version
+    h += `</div>`;
+  });
+  h += `</div>`;
+  if (l.recap?.length) h += `<div class="recap"><div class="eyebrow">Cheat sheet</div><ul>${l.recap.map(r => `<li>${md(r).replace(/^<p>|<\/p>$/g, "")}</li>`).join("")}</ul></div>`;
+  h += `<div id="lesson-end"></div></div>`;
+  $("#view").innerHTML = h;
+
+  // runnable examples
+  l.sections.forEach((s, i) => {
+    if (s.code === undefined) return;
+    const lang = s.lang === "sql" ? "sql" : "python";
+    const run = async () => { const o = $("#so-" + i); o.hidden = false; o.innerHTML = `<span class="dim">Running…</span>`; o.innerHTML = renderOutput(await api("/api/run", { lang, code: ed.get() }), lang); };
+    const ed = makeEditor($("#sx-" + i), s.code, lang, { run });
+    $(`[data-run="${i}"]`).onclick = run;
+  });
+
+  const endBox = () => {
+    if (!$("#lesson-end")) return;  // the learner left the lesson while a check was running
+    const exs = S.exercises.filter(e => e.day === l.day && e.track === l.track);
+    const all = finished.size === l.practice.length;
+    if (!all && !lessonDone(id)) { $("#lesson-end").innerHTML = `<p class="sub" style="margin:0">Finish the ${l.practice.length} in-class exercises to complete the lesson (${finished.size}/${l.practice.length} done).</p>`; return; }
+    $("#lesson-end").innerHTML = `<div class="result fade"><h3>Lesson complete</h3><p style="margin:0 0 10px">Now try today's ${TRACK[l.track]} exercises:</p><div class="row">${exs.map((e, k) => `<a class="btn ${k ? "" : "primary"}" href="#ex/${e.id}">${esc(e.title)}</a>`).join("")}</div></div>`;
+  };
+  const itemDone = async i => {
+    finished.add(i);
+    if (finished.size === l.practice.length && !lessonDone(id)) { await api("/api/lesson-done", { id }); await refresh(); setNav(null); }
+    endBox();
+  };
+
+  // in-class exercises
+  l.practice.forEach((p, i) => {
+    const box = $("#pi-" + i); const pid = `${id}#p${i}`;
+    if (p.type === "mcq") {
+      box.querySelectorAll(".opt").forEach(b => b.onclick = () => {
+        const j = +b.dataset.j; const ok = j === p.answer;
+        box.querySelectorAll(".opt").forEach((o, k) => { o.disabled = true; if (k === p.answer) o.classList.add("right"); else if (k === j) o.classList.add("wrong"); });
+        const w = $(".why", box); w.hidden = false; w.innerHTML = (ok ? "✔ " : "✘ ") + md(p.why || "").replace(/^<p>|<\/p>$/g, "");
+        api("/api/log", { id: pid, ok }); itemDone(i);
+      });
+      return;
+    }
+    const lang = p.type === "sql" ? "sql" : "python"; const body = $("[data-body]", box);
+    const nv = 1 + (p.more || []).length; const solvedK = new Set();
+    const mount = k => {
+      const v = versionOf(p, pid, k); const vid = k ? v.id : pid;   // lesson steps carry no id of their own
+      body.innerHTML = similarBar(pid, k, nv, false) +`<div class="prose">${md(v.prompt)}</div>${p.type === "sql" ? `<details class="schema" style="margin:0 0 10px;padding:0;border:0"><summary class="lvl" style="font-family:var(--font)">Show database tables</summary>${schemaHTML()}</details>` : ""}
+        <div class="ide"><div class="ide-head"><span>${p.type === "sql" ? "query.sql" : "practice.py"}</span><span class="sp"></span><button class="btn" data-prun>Run</button><button class="btn primary" data-pcheck>Check<kbd>Ctrl+Shift+Enter</kbd></button></div>
+        <div class="editor-wrap small" data-ed></div><div class="console" data-out hidden></div></div>
+        <div class="hints" data-hints></div>`;
+      // dots for versions solved in this visit (version 0 also counts once the step is done)
+      body.querySelectorAll(".vdots i").forEach((d, j) => d.className = solvedK.has(j) || (j === 0 && finished.has(i)) ? "y" : j === k ? "on" : "");
+      body.querySelectorAll("[data-sim]").forEach(b => b.onclick = () => mount(k + +b.dataset.sim));
+      const out = $("[data-out]", body);
+      const run = async () => { out.hidden = false; out.innerHTML = `<span class="dim">Running…</span>`; out.innerHTML = renderOutput(await api("/api/run", { lang, code: ed.get(), id: vid }), lang); };
+      const check = async () => {
+        out.hidden = false; out.innerHTML = `<span class="dim">Checking…${l.track === "ml" ? " (about 5 s)" : ""}</span>`;
+        const res = await api("/api/check", { id: vid, code: ed.get() });
+        out.innerHTML = renderOutput(res, lang);
+        if (res.ok) {
+          solvedK.add(k); itemDone(i);
+          const d = body.querySelectorAll(".vdots i")[k]; if (d) d.className = "y";
+          if (k < nv - 1) out.insertAdjacentHTML("beforeend", `<div style="margin-top:10px"><button class="btn primary" data-again>Practise again: similar exercise ›</button></div>`);
+          $("[data-again]", body) && ($("[data-again]", body).onclick = () => mount(k + 1));
+        }
+      };
+      const ed = makeEditor($("[data-ed]", body), v.starter || "", lang, { run, check });
+      $("[data-prun]", body).onclick = run; $("[data-pcheck]", body).onclick = check;
+      const hb = $("[data-hints]", body); const hints = v.hints || []; let shown = 0;
+      const draw = () => {
+        hb.innerHTML = hints.slice(0, shown).map(t => `<div class="hint">${md(t).replace(/^<p>|<\/p>$/g, "")}</div>`).join("") +
+          `<div class="row">${shown < hints.length ? `<button class="btn ghost" data-h>Hint</button>` : ""}<button class="btn ghost" data-s>Show solution</button></div>`;
+        $("[data-h]", hb) && ($("[data-h]", hb).onclick = () => { shown++; draw(); });
+        $("[data-s]", hb).onclick = async () => {
+          const s = await api("/api/solution?reveal=1&id=" + encodeURIComponent(vid));
+          hb.insertAdjacentHTML("beforeend", `<pre class="codeblock mono" style="width:100%">${esc(s.solution)}</pre>`); $("[data-s]", hb).remove();
+        };
+      };
+      draw();
+    };
+    mount(0);
+  });
+  endBox();
+}
+
+// ------------------------------------------------------------ scoreboard
+let scoreFilter = "all", scoreTrack = "all";
+function viewScores() {
+  setNav("scores");
+  const rows = S.exercises.map(e => ({ e, s: status(e), st: S.stats[e.id] || {} }));
+  const count = k => rows.filter(r => r.s.key === k).length;
+  const solved = rows.filter(r => isDone(r.e.id));
+  const graded = solved.filter(r => r.e.kind !== "quiz");
+  const first = graded.filter(r => r.st.solved_on_try === 1 && !r.st.helped).length;
+  const rev = Object.values(S.log).reduce((a, d) => [a[0] + (d.correct || 0), a[1] + (d.reviewed || 0)], [0, 0]);
+  const tiles = [
+    [`${solved.length}/${rows.length}`, "exercises passed"],
+    [graded.length ? Math.round(first / graded.length * 100) + "%" : "–", "solved on the first try"],
+    [rev[1] ? Math.round(rev[0] / rev[1] * 100) + "%" : "–", `review accuracy (${rev[1]} cards)`],
+    [count("failed") + count("shaky"), "need work"],
+    [`${Object.keys(S.lessons_done).length}/${S.lessons.length}`, "lessons done"],
+    [`${S.warmups.filter(e => isDone(e.id)).length}/${S.warmups.length}`, "warm-ups done"],
+  ];
+  const keep = r => (scoreTrack === "all" || r.e.track === scoreTrack) &&
+    (scoreFilter === "all" || (scoreFilter === "work" ? ["failed", "shaky"].includes(r.s.key) : r.s.key === scoreFilter));
+  const shown = rows.filter(keep);
+  const FILTERS = [["all", `All (${rows.length})`], ["work", `Needs work (${count("failed") + count("shaky")})`], ["passed", `Passed (${count("passed")})`], ["new", `Not started (${count("new")})`]];
+  const action = r => {
+    if (r.e.kind === "quiz") return isDone(r.e.id) ? `<a class="btn sm" href="#ex/${r.e.id}">Retake</a>` : `<a class="btn sm" href="#ex/${r.e.id}">Start</a>`;
+    if (r.s.key === "new") return `<a class="btn sm" href="#ex/${r.e.id}">Start</a>`;
+    if (r.s.key === "failed") return `<a class="btn sm primary" href="#ex/${r.e.id}">Retry</a>`;
+    return `<a class="btn sm ${r.s.key === "shaky" ? "primary" : ""}" href="#ex/${r.e.id}/redo">Redo</a>`;
+  };
+  const attemptsCell = r => r.e.kind === "quiz"
+    ? ((r.st.scores || []).length ? (r.st.scores.slice(-1)[0].join("/") + ` <span class="lvl">last score</span>`) : "–")
+    : (r.st.tries ? `${r.st.tries} <span class="lvl">(${r.st.fails} failed)</span>` : "–");
+  $("#view").innerHTML = `<div class="fade"><h1>Scoreboard</h1><p class="sub">Every exercise with how it went. Click any one to do it again; Redo starts from a blank starter.</p>
+    <div class="tiles">${tiles.map(t => `<div class="tile"><b>${t[0]}</b><span>${t[1]}</span></div>`).join("")}</div>
+    <div class="filters"><div class="seg">${FILTERS.map(f => `<button data-f="${f[0]}" class="${scoreFilter === f[0] ? "on" : ""}">${f[1]}</button>`).join("")}</div>
+      <div class="seg">${[["all", "All tracks"], ...Object.entries(TRACK)].map(t => `<button data-t="${t[0]}" class="${scoreTrack === t[0] ? "on" : ""}">${t[1]}</button>`).join("")}</div></div>
+    <div class="score-wrap"><table class="score"><tr><th>Day</th><th>Exercise</th><th>Status</th><th class="wide">Attempts</th><th class="wide">Reviews</th><th class="wide">Last</th><th></th></tr>
+    ${shown.map(r => `<tr><td class="num">${r.e.day}</td>
+      <td><a class="t" href="#ex/${r.e.id}">${esc(r.e.title)}</a><div class="lvl"><span class="t-${r.e.track}">${TRACK[r.e.track]}</span> · ${esc(r.e.topic)}</div></td>
+      <td><span class="pill ${r.s.key}">${r.s.label}</span>${r.s.why ? `<div class="lvl">${esc(r.s.why)}</div>` : ""}</td>
+      <td class="num wide">${attemptsCell(r)}</td><td class="wide">${dots(r.e.id) || ""}</td>
+      <td class="num lvl wide">${r.st.last ? new Date(r.st.last + "T00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : ""}</td>
+      <td>${action(r)}</td></tr>`).join("") || `<tr><td colspan="7" class="empty" style="text-align:center">Nothing here yet.</td></tr>`}
+    </table></div></div>`;
+  document.querySelectorAll("[data-f]").forEach(b => b.onclick = () => { scoreFilter = b.dataset.f; viewScores(); });
+  document.querySelectorAll("[data-t]").forEach(b => b.onclick = () => { scoreTrack = b.dataset.t; viewScores(); });
+}
+
+// ------------------------------------------------------------ review
+function pickCard(ex) {
+  const r = S.reviews[ex.id] || { box: 0, seen: [] };
+  const cards = (ex.review || []).map((c, i) => ({ ...c, key: "c" + i }));
+  if (ex.kind !== "quiz" && r.box >= 2) cards.push({ type: "redo", key: "redo" });
+  const lastType = session?.lastType;
+  const rank = c => { const k = r.seen.indexOf(c.key); return (k === -1 ? -1 : k) + (c.type === lastType ? 0.5 : 0); };
+  return cards.sort((a, b) => rank(a) - rank(b))[0];
+}
+function interleave(ids) {
+  const g = {}; ids.forEach(id => (g[byId(id)?.track] ||= []).push(id));
+  const out = []; const lists = Object.values(g);
+  while (lists.some(l => l.length)) lists.forEach(l => l.length && out.push(l.shift()));
+  return out.filter(byId);
+}
+function viewReview() {
+  setNav("review");
+  if (!session) {
+    if (!S.due.length) {
+      const solvedIds = S.exercises.filter(e => isDone(e.id)).map(e => e.id);
+      const n = solvedIds.length;
+      $("#view").innerHTML = `<div class="card fade"><h1>All caught up</h1><p class="sub">${n ? `Nothing is due today. You have solved ${n} exercise${n > 1 ? "s" : ""}; each comes back at growing intervals (1, 1, 2, 3, 5, 8… days). A miss sends it back to tomorrow.` : "Solve some exercises first. Each one comes back the next day as a quick card."}</p>
+        <div class="row">${n ? `<button class="btn" id="b-all">Practice everything I've solved (${n})</button>` : ""}<a class="btn primary" href="#today">Go to today</a></div></div>`;
+      $("#b-all") && ($("#b-all").onclick = () => { session = { queue: interleave(solvedIds), total: n, n: 0, right: 0, practice: true, retried: {} }; viewReview(); });
+      return;
+    }
+    session = { queue: interleave(S.due), total: S.due.length, n: 0, right: 0, practice: false, retried: {} };
+  }
+  if (!session.queue.length) {
+    const s = session; session = null;
+    $("#view").innerHTML = `<div class="card fade"><h1>Review done</h1><p class="sub">${s.right} of ${s.n} correct on the first try.${s.practice ? " Practice mode: correct answers did not change your schedule; misses come back tomorrow." : " Misses come back tomorrow."}</p><a class="btn primary" href="#today">Continue to new exercises</a></div>`;
+    return;
+  }
+  const id = session.queue[0]; const ex = byId(id); const card = pickCard(ex);
+  window.scrollTo(0, 0);
+  const retry = !!session.retried[id];
+  let body = "";
+  if (card.type === "flash") body = `<div class="prose" style="font-size:17px">${md(card.front)}</div><div id="ans" hidden><hr style="border:0;border-top:1px solid var(--line)"><div class="prose">${md(card.back)}</div></div>
+      <div class="row" id="ctl" style="margin-top:14px"><button class="btn primary" id="b-show">Show answer</button></div>`;
+  else if (card.type === "mcq") body = `<div class="q-text">${md(card.q).replace(/^<p>|<\/p>$/g, "")}</div><div class="opts">${card.options.map((o, j) => `<button class="opt" data-j="${j}">${md(o).replace(/^<p>|<\/p>$/g, "")}</button>`).join("")}</div>`;
+  else if (card.type === "output") body = `<div class="q-text">What does this print?</div><div class="codeblock mono">${esc(card.code)}</div><form id="f"><input class="answer" id="a" autocomplete="off" placeholder="Type the exact output"><div class="row" style="margin-top:10px"><button class="btn primary">Check</button></div></form>`;
+  else if (card.type === "blank") body = `<div class="q-text">Fill in the blank</div><div class="codeblock mono">${esc(card.code).replace(/____/g, `<span style="color:#f0c674">____</span>`)}</div><form id="f"><input class="answer" id="a" autocomplete="off" placeholder="What goes in ____ ?"><div class="row" style="margin-top:10px"><button class="btn primary">Check</button></div></form>`;
+  else body = `<div class="q-text">Solve it again: ${esc(ex.title)}</div><div class="prose">${md(ex.prompt)}</div>${ex.kind === "sql" ? schemaHTML() : ""}<div class="ide" style="margin-top:12px"><div class="ide-head"><span>${ex.kind === "sql" ? "query.sql" : "solution.py"}</span><span class="sp"></span><button class="btn primary" id="b-check">Check<kbd>Ctrl+Shift+Enter</kbd></button></div><div class="editor-wrap" id="ed"></div><div class="console" id="out"><span class="dim">From memory. No hints this time.</span></div></div><div class="row" style="margin-top:10px"><button class="btn ghost" id="b-give">I don't remember</button></div>`;
+  $("#view").innerHTML = `<div class="fade"><div class="review-top"><span class="lvl mono">${retry ? "second chance" : `${session.n + 1}/${session.total}`}</span><div class="meter"><i style="width:${session.n / session.total * 100}%"></i></div><a class="btn ghost" href="#today" id="b-quit">Stop</a></div>
+    <div class="card" style="${card.type === "redo" ? "max-width:980px" : ""}"><div class="meta row" style="margin-bottom:12px"><span class="chip t-${ex.track}">${TRACK[ex.track]}</span><span class="lvl">${esc(ex.title)}</span><span class="fmt">${FORMAT[card.type]}</span></div>${body}<div id="fb"></div></div></div>`;
+  $("#b-quit").onclick = () => { session = null; };
+
+  const finish = (correct, why, extra = "") => {
+    $("#fb").innerHTML = `<div class="feedback ${correct ? "good" : "bad"}">${correct ? "Correct" : "Not quite"}${why ? `<div class="why" style="color:inherit;font-weight:400">${md(why).replace(/^<p>|<\/p>$/g, "")}</div>` : ""}</div>${extra}<div class="row" style="margin-top:12px"><button class="btn primary" id="b-next">Next<kbd>Enter</kbd></button></div>`;
+    let went = false;
+    const go = async () => {
+      if (went) return; went = true;
+      document.removeEventListener("keydown", onKey);
+      if (!retry) { session.n++; if (correct) session.right++; }
+      if (!retry && (!session.practice || !correct)) await api("/api/review", { id, card: card.key, correct });
+      session.lastType = card.type;
+      session.queue.shift();
+      if (!correct && !retry) { session.retried[id] = true; session.queue.push(id); }
+      if (retry) delete session.retried[id];
+      await refresh(); viewReview();
+    };
+    // added after a short delay: the keydown that submitted the answer must not also skip the feedback
+    const onKey = e => { if (e.key === "Enter" && !e.target.closest?.(".CodeMirror")) { e.preventDefault(); go(); } };
+    $("#b-next").onclick = go; setTimeout(() => { if (!went) document.addEventListener("keydown", onKey); }, 50); $("#b-next").focus();
+  };
+
+  if (card.type === "flash") $("#b-show").onclick = () => {
+    $("#ans").hidden = false;
+    $("#ctl").innerHTML = `<span class="lvl">Did you know it?</span><button class="btn" id="b-no">No</button><button class="btn primary" id="b-yes">Yes</button>`;
+    $("#b-yes").onclick = () => { $("#ctl").remove(); finish(true, ""); };
+    $("#b-no").onclick = () => { $("#ctl").remove(); finish(false, ""); };
+  };
+  if (card.type === "mcq") document.querySelectorAll(".opt").forEach(b => b.onclick = () => {
+    const j = +b.dataset.j;
+    document.querySelectorAll(".opt").forEach((o, k) => { o.disabled = true; if (k === card.answer) o.classList.add("right"); else if (k === j) o.classList.add("wrong"); });
+    finish(j === card.answer, card.why);
+  });
+  if (card.type === "output" || card.type === "blank") {
+    $("#a").focus();
+    $("#f").onsubmit = e => {
+      e.preventDefault(); const v = $("#a").value; if (!v.trim()) return;
+      const accepted = [].concat(card.answer).map(String);
+      const ok = accepted.some(a => norm(a) === norm(v));
+      $("#a").disabled = true; $("#f").querySelector("button").remove();
+      finish(ok, card.why, ok ? "" : `<div class="why">Answer: <code class="mono">${esc(accepted[0])}</code></div>`);
+    };
+  }
+  if (card.type === "redo") {
+    const lang = ex.kind === "sql" ? "sql" : "python";
+    const ed = makeEditor($("#ed"), ex.starter || "", lang, { check: () => check() });
+    const check = async () => {
+      $("#out").innerHTML = `<span class="dim">Checking…</span>`;
+      const res = await api("/api/check", { id, code: ed.get(), review: true });
+      $("#out").innerHTML = renderOutput(res, lang);
+      if (res.ok) { $("#b-check").disabled = true; $("#b-give").remove(); finish(true, ""); }
+    };
+    $("#b-check").onclick = check;
+    $("#b-give").onclick = async () => {
+      const s = await api("/api/solution?id=" + encodeURIComponent(id));
+      $("#b-give").remove(); $("#b-check").disabled = true;
+      finish(false, "", `<pre class="codeblock mono">${esc(s.solution_steps || s.solution)}</pre>`);
+    };
+  }
+}
+
+// ------------------------------------------------------------ playground
+let playLang = "python";
+// Exercises the learner asked to keep, grouped by the skill they practise.
+function savedHTML() {
+  if (!S.saved.length) return "";
+  const sections = [...new Set(S.saved.map(e => e.section))];
+  return `<h2>Saved exercises</h2><div class="tracks">${sections.map(sec => {
+    const list = S.saved.filter(e => e.section === sec); const t = list[0].track;
+    return `<div class="track"><h3><span class="t-${t}">${esc(sec)}</span><span class="lvl">${list.filter(e => S.more_done[e.id]).length}/${list.length} done</span></h3>` +
+      list.map(e => `<a class="ex-row ${S.more_done[e.id] ? "done" : ""}" href="#ex/${e.id}"><span class="tick">${S.more_done[e.id] ? "✓" : ""}</span><span class="name">${esc(e.title)}<small>${TRACK[t]} · ${e.kind === "sql" ? "SQL query" : "code"}</small></span></a>`).join("") + "</div>";
+  }).join("")}</div>`;
+}
+
+function viewPlay() {
+  setNav("play");
+  const key = "play-" + playLang;
+  $("#view").innerHTML = `<div class="fade"><h1>Playground</h1><p class="sub">Free practice. Python runs in your browser with numpy, pandas and scikit-learn (the first run of each takes a few seconds to load); SQL runs on the exercise database.</p>
+    <div class="split"><section style="min-width:0"><div class="ide"><div class="ide-head">
+      <button class="btn ${playLang === "python" ? "primary" : ""}" data-l="python">Python</button><button class="btn ${playLang === "sql" ? "primary" : ""}" data-l="sql">SQL</button><span class="sp"></span>
+      <button class="btn primary" id="b-run">Run<kbd>Ctrl+Enter</kbd></button></div><div class="editor-wrap" id="ed"></div><div class="console" id="out"><span class="dim">Output appears here.</span></div></div></section>
+    <section class="brief">${playLang === "sql" ? schemaHTML().replace('class="schema"', 'class="schema" style="margin:0;border:0;padding:0"') : `<div class="eyebrow">Tips</div><div class="prose"><ul><li>Use <code>print()</code> to see values.</li><li>Each run starts fresh: nothing is kept between runs.</li><li>Ctrl+Enter runs the code.</li></ul></div>`}</section></div>${savedHTML()}</div>`;
+  // The Playground always opens on an empty editor: nothing is kept from last time.
+  const ed = makeEditor($("#ed"), "", playLang, { run: () => run() });
+  document.querySelectorAll("[data-l]").forEach(b => b.onclick = () => { playLang = b.dataset.l; viewPlay(); });
+  async function run() {
+    $("#out").innerHTML = `<span class="dim">Running…</span>`;
+    $("#out").innerHTML = renderOutput(await api("/api/run", { lang: playLang, code: ed.get() }), playLang);
+  }
+  $("#b-run").onclick = run; ed.focus();
+}
+
+// ------------------------------------------------------------ router
+async function refresh() {
+  S = await api("/api/state");
+  S.warmups = S.exercises.filter(e => e.warmup);
+  S.exercises = S.exercises.filter(e => !e.warmup);
+}
+function route() {
+  const h = location.hash.slice(1) || "today";
+  if (!h.startsWith("review")) session = null;
+  window.scrollTo(0, 0);
+  if (h.startsWith("ex/")) { const [id, mode] = h.slice(3).split("/"); return viewExercise(id, mode === "redo"); }
+  if (h.startsWith("lesson/")) return viewLesson(h.slice(7));
+  ({ today: viewToday, review: viewReview, plan: viewPlan, play: viewPlay, scores: viewScores }[h] || viewToday)();
+}
+window.addEventListener("hashchange", async () => { await refresh(); route(); });
+(async () => {
+  try { await refresh(); route(); }
+  catch (err) { $("#view").innerHTML = `<p class="empty">The exercises could not load. Check your connection and reload the page.</p>`; }
+})();
+</script>
+</body>
+</html>
